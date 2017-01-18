@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# -*- coding: UTF-8 -*-
+# -*- coding: utf-8 -*-
 # gitstatus.sh -- produce the current git repo status on STDOUT
 # Functionally equivalent to 'gitstatus.py', but written in bash (not python).
 #
@@ -15,7 +15,7 @@ if [ -z "${__GIT_PROMPT_DIR}" ]; then
   __GIT_PROMPT_DIR="$( cd -P "$( dirname "${SOURCE}" )" && pwd )"
 fi
 
-gitstatus=$( LC_ALL=C git status --untracked-files=all --porcelain --branch )
+gitstatus=$( LC_ALL=C git status --untracked-files=${__GIT_PROMPT_SHOW_UNTRACKED_FILES:-all} --porcelain --branch )
 
 # if the status is fatal, exit now
 [[ "$?" -ne 0 ]] && exit 0
@@ -26,13 +26,26 @@ num_conflicts=0
 num_untracked=0
 while IFS='' read -r line || [[ -n "$line" ]]; do
   status=${line:0:2}
-  case "$status" in
-    \#\#) branch_line="${line/\.\.\./^}" ;;
-    ?M) ((num_changed++)) ;;
-    U?) ((num_conflicts++)) ;;
-    \?\?) ((num_untracked++)) ;;
-    *) ((num_staged++)) ;;
-  esac
+  while [[ -n $status ]]; do
+    case "$status" in
+      #two fixed character matches, loop finished
+      \#\#) branch_line="${line/\.\.\./^}"; break ;;
+      \?\?) ((num_untracked++)); break ;;
+      U?) ((num_conflicts++)); break;;
+      ?U) ((num_conflicts++)); break;;
+      DD) ((num_conflicts++)); break;;
+      AA) ((num_conflicts++)); break;;
+      #two character matches, first loop
+      ?M) ((num_changed++)) ;;
+      ?D) ((num_changed++)) ;;
+      ?\ ) ;;
+      #single character matches, second loop
+      U) ((num_conflicts++)) ;;
+      \ ) ;;
+      *) ((num_staged++)) ;;
+    esac
+    status=${status:0:(${#status}-1)}
+  done
 done <<< "$gitstatus"
 
 num_stashed=0
@@ -46,7 +59,7 @@ if [[ "$__GIT_PROMPT_IGNORE_STASH" != "1" ]]; then
 fi
 
 clean=0
-if (( num_changed == 0 && num_staged == 0 && num_untracked == 0 && num_stashed == 0 )) ; then
+if (( num_changed == 0 && num_staged == 0 && num_untracked == 0 && num_stashed == 0 && num_conflicts == 0)) ; then
   clean=1
 fi
 
@@ -60,7 +73,7 @@ if [[ "$branch" == *"Initial commit on"* ]]; then
   branch="${fields[3]}"
   remote="_NO_REMOTE_TRACKING_"
 elif [[ "$branch" == *"no branch"* ]]; then
-  tag=$( git describe --exact-match )
+  tag=$( git describe --tags --exact-match )
   if [[ -n "$tag" ]]; then
     branch="$tag"
   else

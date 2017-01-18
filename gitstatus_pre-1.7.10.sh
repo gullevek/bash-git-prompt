@@ -19,14 +19,12 @@ if [ -z "${__GIT_PROMPT_DIR}" ]; then
   __GIT_PROMPT_DIR="$( cd -P "$( dirname "${SOURCE}" )" && pwd )"
 fi
 
-branch=$( git rev-parse --abbrev-ref HEAD )
+gitsym=$( git symbolic-ref HEAD 2>/dev/null )
 
-#If error code we are not in a repo - exit
-if [[ $? != 0 ]]; then exit 0; fi
-
-#If we are detached, branch name will be HEAD
-if [[ "$branch" == "HEAD" ]]; then
-  unset branch
+#If exit status OK, we have a branch
+if [[ $? == 0 ]]; then
+  # the current branch is the tail end of the symbolic reference
+  branch="${gitsym##refs/heads/}"    # get the basename after "refs/heads/"
 fi
 
 gitstatus=$( git diff --name-status 2>&1 )
@@ -52,7 +50,7 @@ if [[ "$__GIT_PROMPT_IGNORE_STASH" != "1" ]]; then
 fi
 
 clean=0
-if (( num_changed == 0 && num_staged == 0 && num_U == 0 && num_untracked == 0 && num_stashed == 0 )) ; then
+if (( num_changed == 0 && num_staged == 0 && num_untracked == 0 && num_stashed == 0 && num_conflicts == 0 )) ; then
   clean=1
 fi
 
@@ -60,7 +58,7 @@ remote=
 upstream=
 
 if [[ -z "$branch" ]]; then
-  tag=$( git describe --exact-match 2>/dev/null )
+  tag=$( git describe --tags --exact-match 2>/dev/null )
   if [[ -n "$tag" ]]; then
     branch="$tag"
   else
@@ -86,33 +84,27 @@ else
   upstream=$( git rev-parse --abbrev-ref ${branch}@{upstream} 2>&1 )
 
   if [[ $? == 0 ]]; then
-    has_remote_tracking=1
+     # get the revision list, and count the leading "<" and ">"
+    revgit=$( git rev-list --left-right ${remote_ref}...HEAD 2>/dev/null )
+    if [[ $? == 0 ]]; then
+      num_revs=$( all_lines "$revgit" )
+      num_ahead=$( count_lines "$revgit" "^>" )
+      num_behind=$(( num_revs - num_ahead ))
+      if (( num_behind > 0 )) ; then
+        remote="${remote}_BEHIND_${num_behind}"
+      fi
+      if (( num_ahead > 0 )) ; then
+        remote="${remote}_AHEAD_${num_ahead}"
+      fi
+    fi
   else
-    has_remote_tracking=0
+    remote='_NO_REMOTE_TRACKING_'
     unset upstream
-  fi
-
-  # get the revision list, and count the leading "<" and ">"
-  revgit=$( git rev-list --left-right ${remote_ref}...HEAD 2>/dev/null )
-  if [[ $? == 0 ]]; then
-    num_revs=$( all_lines "$revgit" )
-    num_ahead=$( count_lines "$revgit" "^>" )
-    num_behind=$(( num_revs - num_ahead ))
-    if (( num_behind > 0 )) ; then
-      remote="${remote}_BEHIND_${num_behind}"
-    fi
-    if (( num_ahead > 0 )) ; then
-      remote="${remote}_AHEAD_${num_ahead}"
-    fi
   fi
 fi
 
 if [[ -z "$remote" ]] ; then
   remote='.'
-fi
-
-if [[ "$has_remote_tracking" == "0" ]] ; then
-  remote='_NO_REMOTE_TRACKING_'
 fi
 
 if [[ -z "$upstream" ]] ; then
